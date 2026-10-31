@@ -1,0 +1,58 @@
+# node modules
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+.env
+.env.*
+!.env.example
+
+# Local credentials
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Test, coverage and local cache output
+*.log
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+playwright-report/
+test-results/
+
+# os
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# tools
+.cursorrules
+.agent/
+.deepeval/
+# RAG vector store (auto-generated, rebuild with: python -m rag.ingest)
+backend/rag/chroma_db/
+backend/rag/faiss_index/
+
+# LangGraph sqlite checkpointer (CHECKPOINTER=sqlite)
+backend/checkpoints.sqlite*
+backend/.runtime/
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
