@@ -131,7 +131,10 @@ _runtime: RunManager | None = None
 def get_runtime() -> RunManager:
     global _runtime
     if _runtime is None:
-        _runtime = RunManager()
+        from memory.middleware import MemoryMiddleware
+
+        settings = get_settings()
+        _runtime = RunManager(settings, middleware=MemoryMiddleware.from_env(settings.data_dir))
     return _runtime
 
 def get_master_app():
@@ -436,7 +439,8 @@ async def chat(request: ChatRequest):
 
     handle = await manager.start(thread_id=thread_id, request_id=request.request_id,
                                  fingerprint=request_fingerprint(request.model_dump()),
-                                 channel="text", source=source, cleanup=_cleanup_thread)
+                                 channel="text", source=source, cleanup=_cleanup_thread,
+                                 user_text=user_text, agent_name=active_agent)
     return _run_response(handle)
 
 
@@ -468,6 +472,16 @@ async def vision_chat(
     except LLMConfigurationError as exc:
         raise HTTPException(status_code=500, detail=f"大模型配置错误：{exc}") from exc
     resolved_thread_id = thread_id.strip() or uuid4().hex
+    active_agent = SCAN_TYPE_TO_AGENT[normalized_scan_type]
+    vision_user_text = (
+        parsed_messages[-1].content
+        if parsed_messages and parsed_messages[-1].role == "user" and parsed_messages[-1].content.strip()
+        else {
+            "report": "上传了一张检查报告图片，请帮我解读。",
+            "trace_code": "上传了一张药品追溯码图片，请帮我查看用药信息。",
+            "drug_box": "上传了一张药盒图片，请帮我看看这个药。",
+        }[normalized_scan_type]
+    )
 
     async def source(context: RunContext):
         config = {"configurable": {"thread_id": context.thread_id, "channel": "text"}}
@@ -478,7 +492,6 @@ async def vision_chat(
         injected_message = compose_agent_message(normalized_scan_type, vision_text)
         latest_message = ChatMessage(role="user", content=injected_message)
         vision_messages = [*parsed_messages[-9:], latest_message]
-        active_agent = SCAN_TYPE_TO_AGENT[normalized_scan_type]
         full_state = _build_initial_state(vision_messages, parsed_user_info, active_agent)
         turn_state = _build_initial_state([latest_message], parsed_user_info, active_agent)
         graph_input = await _resolve_graph_input(config, turn_state, full_state, injected_message)
@@ -491,7 +504,8 @@ async def vision_chat(
         fingerprint=request_fingerprint({"thread_id": thread_id, "scan_type": normalized_scan_type,
             "user_info": parsed_user_info.model_dump(), "messages": [m.model_dump() for m in parsed_messages],
             "image_digest": hashlib.sha256(image_bytes).hexdigest(), "content_type": file.content_type}),
-        channel="vision", source=source, cleanup=_cleanup_thread, timeout=get_settings().vision_timeout)
+        channel="vision", source=source, cleanup=_cleanup_thread, timeout=get_settings().vision_timeout,
+        user_text=vision_user_text, agent_name=active_agent)
     return _run_response(handle)
 
 
@@ -554,7 +568,8 @@ async def _voice_run_events(text: str, thread_id: str, user_info: dict, timeout:
     handle = await get_runtime().start(
         thread_id=thread_id, request_id=uuid4().hex,
         fingerprint=request_fingerprint({"text": text, "thread_id": thread_id, "user_info": user_info}),
-        channel="voice", source=source, cleanup=_cleanup_thread, timeout=timeout)
+        channel="voice", source=source, cleanup=_cleanup_thread, timeout=timeout,
+        user_text=text, agent_name="clinic_agent")
     async with aclosing(handle.events()) as events:
         async for event in events:
             # Voice's versioned wire frames retain their existing field contract.

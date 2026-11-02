@@ -12,6 +12,7 @@ import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Any, Protocol
 from uuid import uuid4
 
 from runtime.config import RuntimeSettings, get_settings
@@ -22,6 +23,15 @@ from runtime.store import RunStore, ThreadLock
 logger = logging.getLogger(__name__)
 EventSource = Callable[[RunContext], AsyncIterator[dict]]
 Cleanup = Callable[[str], Awaitable[None]]
+
+
+class RunMiddleware(Protocol):
+    """Hooks for the outer Run, including LangGraph interrupts and handoffs."""
+
+    def before_run(self, run_id: str, user_text: str, agent_name: str) -> None: ...
+    def on_event(self, run_id: str, event: dict[str, Any]) -> None: ...
+    def after_run(self, run_id: str, status: str) -> None: ...
+    async def shutdown(self, timeout: float) -> None: ...
 
 
 def request_fingerprint(value: dict) -> str:
@@ -49,6 +59,7 @@ class RunHandle:
     started: asyncio.Event = field(default_factory=asyncio.Event)
     task: asyncio.Task | None = None
     terminal: dict | None = None
+    outcome: str = "error"
     cancel_reason: str = "run_cancelled"
     lease_expires: float = 0
 
@@ -86,16 +97,27 @@ class RunHandle:
 
 
 class RunManager:
-    def __init__(self, settings: RuntimeSettings | None = None) -> None:
+    def __init__(self, settings: RuntimeSettings | None = None,
+                 middleware: RunMiddleware | None = None) -> None:
         self.settings = settings or get_settings()
         self.store = RunStore(self.settings)
         self.owner = uuid4().hex
         self.live: dict[str, RunHandle] = {}
         self._closed = False
+        self.middleware = middleware
+
+    def _notify(self, hook: str, *args: Any) -> None:
+        if self.middleware is None:
+            return
+        try:
+            getattr(self.middleware, hook)(*args)
+        except Exception as exc:
+            logger.warning("Run middleware failed hook=%s error_type=%s", hook, type(exc).__name__)
 
     async def start(self, *, thread_id: str, request_id: str | None, fingerprint: str,
                     channel: str, source: EventSource, cleanup: Cleanup,
-                    timeout: float | None = None) -> RunHandle:
+                    timeout: float | None = None, user_text: str = "",
+                    agent_name: str = "") -> RunHandle:
         if self._closed:
             raise RuntimeFailure("runtime_stopping", "服务正在重启，请稍后重试。", http_status=503, retryable=True)
         await asyncio.to_thread(self.store.find_request, request_id, fingerprint)
@@ -123,6 +145,7 @@ class RunManager:
                              lambda: asyncio.to_thread(self.store.owned_update, run_id, self.owner, graph=True))
         handle = RunHandle(context, lock, asyncio.Queue(self.settings.event_buffer), lease_expires=row["lease_expires"])
         self.live[run_id] = handle
+        self._notify("before_run", run_id, user_text, agent_name)
         handle.task = asyncio.create_task(self._drive(handle, source, cleanup), name=f"health-run-{run_id}")
         started = asyncio.create_task(handle.started.wait())
         try:
@@ -161,6 +184,7 @@ class RunManager:
                                                  retryable=bool(event.get("retryable")))
                         if event.get("type") == "interrupt":
                             context.waiting_input = True
+                        self._notify("on_event", context.run_id, event)
                         await handle.queue.put({**event, "run_id": context.run_id})
                 finally:
                     await stream.aclose()
@@ -189,6 +213,7 @@ class RunManager:
                     current_run.reset(token)
                     self.live.pop(context.run_id, None)
                     handle.done.set()
+                    self._notify("after_run", context.run_id, handle.outcome)
 
     async def _finalize(self, handle: RunHandle, cleanup: Cleanup, status: str,
                         failure: RuntimeFailure | None) -> None:
@@ -213,6 +238,7 @@ class RunManager:
                     await asyncio.to_thread(self.store.owned_update, context.run_id, self.owner,
                                             status=status, reason=failure.code)
                 logger.warning("Run finalization failed run_id=%s error_type=%s", context.run_id, type(exc).__name__)
+            handle.outcome = status
             handle.terminal = failure.event(context.run_id) if failure else {
                 "type": "finish", "run_id": context.run_id, "status": status,
             }
@@ -324,7 +350,13 @@ class RunManager:
         tasks = [h.task for h in self.live.values() if h.task and not h.task.done()]
         for task in tasks:
             task.cancel()
-        if not tasks:
-            return True
-        _, pending = await asyncio.wait(tasks, timeout=self.settings.cleanup_timeout + 1)
-        return not pending
+        if tasks:
+            _, pending = await asyncio.wait(tasks, timeout=self.settings.cleanup_timeout + 1)
+            if pending:
+                return False
+        if self.middleware is not None:
+            try:
+                await self.middleware.shutdown(self.settings.cleanup_timeout)
+            except Exception as exc:
+                logger.warning("Run middleware shutdown failed error_type=%s", type(exc).__name__)
+        return True
