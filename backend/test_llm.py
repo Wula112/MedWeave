@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from agents.llm import (
     LLMConfigurationError,
+    close_chat_llm,
     get_chat_llm,
     resolve_model_settings,
 )
@@ -152,6 +153,27 @@ class ModelSettingsTests(unittest.TestCase):
         self.assertEqual(llm.temperature, 0.2)
         self.assertFalse(llm.streaming)
         self.assertIsNone(llm.extra_body)
+
+
+class ModelClientLifetimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_closing_one_model_does_not_close_concurrent_or_later_models(self):
+        env = {"LLM_PROVIDER": "openai", "OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "test-model"}
+        with patch.dict(os.environ, env, clear=True):
+            first = get_chat_llm("precise", streaming=False)
+            concurrent = get_chat_llm("precise", streaming=False)
+            later = None
+            try:
+                await close_chat_llm(first)
+                self.assertFalse(concurrent.root_async_client.is_closed())
+                self.assertFalse(concurrent.root_client.is_closed())
+
+                later = get_chat_llm("precise", streaming=False)
+                self.assertFalse(later.root_async_client.is_closed())
+                self.assertFalse(later.root_client.is_closed())
+            finally:
+                await close_chat_llm(concurrent)
+                if later is not None:
+                    await close_chat_llm(later)
 
 
 if __name__ == "__main__":

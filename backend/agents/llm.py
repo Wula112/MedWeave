@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from langchain_openai import ChatOpenAI
+from openai import DefaultAsyncHttpxClient, DefaultHttpxClient
 from runtime.config import get_settings
 from runtime.context import current_run
 
@@ -208,6 +209,10 @@ def get_chat_llm(
     policy = context.settings if context else get_settings()
     resolved_temp = temperature if temperature is not None else _PRESETS.get(preset, 0.4)
 
+    # LangChain caches its default transports by URL and timeout. Each Run closes
+    # its own model, so sharing those transports would close other Runs' clients.
+    proxy = os.environ.get("OPENAI_PROXY") or None
+    client_options = {"timeout": policy.model_timeout, "proxy": proxy}
     kwargs: dict[str, Any] = {
         "api_key": settings.api_key,
         "model": settings.model,
@@ -215,6 +220,11 @@ def get_chat_llm(
         "streaming": streaming,
         "timeout": policy.model_timeout,
         "max_retries": 0,
+        "http_client": DefaultHttpxClient(**client_options),
+        "http_async_client": DefaultAsyncHttpxClient(**client_options),
+        # The proxy is applied to the owned clients above; avoid having
+        # ChatOpenAI also configure its own clients from OPENAI_PROXY.
+        "openai_proxy": "",
     }
     if settings.base_url:
         kwargs["base_url"] = settings.base_url
