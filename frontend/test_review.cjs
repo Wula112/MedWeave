@@ -36,7 +36,7 @@ async function review(page, step) {
 
         await review(page, '01_home_screen');
         console.log('\n=== Module 01: Home Screen ===');
-        check(await page.locator('text=大健康 AI 助手在线中').isVisible(), "AI assistant badge visible");
+        check(await page.locator('text=MedWeave').first().isVisible(), "AI assistant brand visible");
         check(await page.locator('text=长辈模式').isVisible(), "Elder mode toggle visible");
         check(await page.locator('text=8,542').isVisible(), "Step count on health card visible");
 

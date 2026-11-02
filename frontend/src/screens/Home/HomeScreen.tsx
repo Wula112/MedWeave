@@ -16,15 +16,15 @@ const HomeScreen = () => {
     };
 
     return (
-        <div className="flex flex-col h-full overflow-hidden relative pb-24 font-cn bg-gradient-to-b from-brand-50 via-white to-ink-50">
+        <div className="flex flex-col h-full overflow-hidden relative pb-24 font-cn bg-gradient-to-b from-brand-50 via-ink-50 to-ink-50">
             {/* Header: brand mark, status and the elder-mode switch */}
             <header className="shrink-0 z-10 flex items-center justify-between gap-3 px-5 pt-[max(env(safe-area-inset-top),1rem)] pb-3">
                 <div className="flex items-center gap-3 min-w-0">
-                    <div className={`rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white font-semibold shadow-raised shrink-0 ${isElderMode ? 'w-12 h-12 text-title' : 'w-10 h-10 text-callout'}`}>
+                    <div className={`rounded-full bg-gradient-to-br from-brand-600 to-brand-700 flex items-center justify-center text-white font-semibold shadow-raised shrink-0 ${isElderMode ? 'w-12 h-12 text-title' : 'w-10 h-10 text-callout'}`}>
                         健
                     </div>
                     <div className="min-w-0">
-                        <h1 className={`font-semibold text-ink-900 truncate ${isElderMode ? 'text-title' : 'text-callout'}`}>大健康 AI 助手</h1>
+                        <h1 className={`font-semibold text-ink-900 truncate ${isElderMode ? 'text-title' : 'text-callout'}`}>MedWeave</h1>
                         <p className={`flex items-center gap-1.5 whitespace-nowrap text-ink-600 ${isElderMode ? 'text-body' : 'text-caption'}`}>
                             <span className="w-1.5 h-1.5 rounded-full bg-success-500 shrink-0" />
                             <span className="truncate">在线 · 随时为您服务</span>
@@ -57,7 +57,7 @@ const HomeScreen = () => {
                         </span>
                         <span className="flex-1 min-w-0">
                             <span className={`block font-semibold ${isElderMode ? 'text-headline' : 'text-title'}`}>语音问诊</span>
-                            <span className={`block text-brand-50 ${isElderMode ? 'text-callout' : 'text-body'}`}>像打电话一样说症状</span>
+                            <span className={`block text-white ${isElderMode ? 'text-callout' : 'text-body'}`}>像打电话一样说症状</span>
                         </span>
                         <ChevronRight size={isElderMode ? 24 : 20} className="shrink-0 text-brand-100" />
                     </button>

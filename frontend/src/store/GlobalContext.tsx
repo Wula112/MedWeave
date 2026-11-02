@@ -84,7 +84,7 @@ export const GlobalProvider = ({ children }: { children: ReactNode }) => {
         {
             id: 'msg-1',
             role: 'assistant',
-            text: `你好，${USER_NAME}！我是大健康智能助手，愿你时刻好心情。今天有什么我可以帮你的吗？`,
+            text: `你好，${USER_NAME}！我是 MedWeave，愿你时刻好心情。今天有什么我可以帮你的吗？`,
             timestamp: Date.now()
         }
     ]);
