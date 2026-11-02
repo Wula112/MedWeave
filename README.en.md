@@ -20,19 +20,9 @@ The interface is designed for mobile viewports. The current product copy and bun
 
 <table>
   <tr>
-    <td align="center"><img src="docs/images/01_home.jpg" width="240" alt="Home: health summary and chat"><br><strong>Home: health summary + chat</strong></td>
-    <td align="center"><img src="docs/images/02_clinic_triage.jpg" width="240" alt="AI clinic triage card"><br><strong>AI clinic: triage card</strong></td>
-    <td align="center"><img src="docs/images/03_insurance_balance.jpg" width="240" alt="Insurance credential and balance"><br><strong>Insurance credential and balance</strong></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/images/04_insurance_expenses.jpg" width="240" alt="Insurance expenses"><br><strong>Insurance expenses</strong></td>
-    <td align="center"><img src="docs/images/05_report_analysis.jpg" width="240" alt="Lab report, item by item"><br><strong>Lab report, item by item</strong></td>
-    <td align="center"><img src="docs/images/06_pharmacy_drug.jpg" width="240" alt="Medicine information"><br><strong>Medicine information</strong></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/images/07_pharmacy_nearby.jpg" width="240" alt="Nearby pharmacies"><br><strong>Nearby pharmacies</strong></td>
-    <td align="center"><img src="docs/images/08_dashboard.jpg" width="240" alt="Daily health goals"><br><strong>Daily health goals</strong></td>
-    <td align="center"><img src="docs/images/09_elder_mode.jpg" width="240" alt="Elder mode"><br><strong>Elder mode</strong></td>
+    <td align="center"><img src="docs/images/preview-home.png" width="240" alt="Home: health summary and chat"><br><strong>Home: health summary + chat</strong></td>
+    <td align="center"><img src="docs/images/preview-report.png" width="240" alt="Lab report analysis"><br><strong>Lab report analysis</strong></td>
+    <td align="center"><img src="docs/images/preview-dashboard.png" width="240" alt="Daily health goals"><br><strong>Daily health goals</strong></td>
   </tr>
 </table>
 
