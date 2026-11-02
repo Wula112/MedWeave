@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  ::selection { @apply bg-brand-100 text-ink-900; }
+  input, textarea { @apply caret-brand-700; }
+}
+
 @layer utilities {
   /* Horizontal chip rows scroll without a visible scrollbar */
   .scrollbar-hide::-webkit-scrollbar { display: none; }

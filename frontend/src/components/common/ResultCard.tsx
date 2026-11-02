@@ -11,12 +11,10 @@ import { useTextScale } from '../../design/textScale';
 
 export type Tone = 'brand' | 'success' | 'warning' | 'danger' | 'neutral';
 
-// success is deliberately quiet: a neutral pill with a green check. A green pill
-// would read like the teal brand chips next to it, and "fine" should not compete
-// with what needs attention (warning / danger).
+// Mint keeps positive results distinct from the blue brand and warmer alerts.
 const BADGE_TONES: Record<Tone, string> = {
     brand: 'bg-brand-50 text-brand-800 ring-brand-200',
-    success: 'bg-ink-50 text-ink-700 ring-ink-200',
+    success: 'bg-success-50 text-success-800 ring-success-200',
     warning: 'bg-warning-50 text-warning-800 ring-warning-200',
     danger: 'bg-danger-50 text-danger-700 ring-danger-200',
     neutral: 'bg-ink-50 text-ink-700 ring-ink-200',

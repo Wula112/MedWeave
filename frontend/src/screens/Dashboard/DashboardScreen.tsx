@@ -9,7 +9,7 @@ const DashboardScreen = () => {
     const t = useTextScale();
 
     return (
-        <div className="h-full overflow-y-auto font-cn bg-gradient-to-b from-brand-50 via-white to-ink-50 pb-40">
+        <div className="h-full overflow-y-auto font-cn bg-gradient-to-b from-brand-50 via-ink-50 to-ink-50 pb-40">
             <header className="sticky top-0 z-10 flex items-center gap-2 px-3 pt-[max(env(safe-area-inset-top),0.75rem)] pb-2 bg-white/80 backdrop-blur-md">
                 <button
                     onClick={() => setChatMode('general')}

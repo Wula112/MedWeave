@@ -397,7 +397,7 @@ const VoiceCallScreen = () => {
 
     if (!consented) {
         return (
-            <div className="absolute inset-0 z-50 flex flex-col font-cn bg-gradient-to-b from-brand-50 via-white to-ink-50">
+            <div className="absolute inset-0 z-50 flex flex-col font-cn bg-gradient-to-b from-brand-50 via-ink-50 to-ink-50">
                 <VoiceConsentNotice onAccept={handleAccept} onDecline={() => closeVoiceCall()} isElderMode={isElderMode} />
             </div>
         );

@@ -49,7 +49,7 @@ const GlobalChatView = () => {
                             <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                 <div
                                     className={`max-w-[85%] px-4 py-3 rounded-card overflow-hidden shadow-raised ${msg.role === 'user'
-                                        ? 'bg-brand-700 text-white rounded-tr-control'
+                                        ? 'bg-brand-100 text-ink-900 rounded-tr-control'
                                         : 'bg-white text-ink-800 rounded-tl-control'
                                         } ${isElderMode ? 'text-headline' : 'text-callout'}`}
                                 >
@@ -61,7 +61,7 @@ const GlobalChatView = () => {
                                                 ul: ({ children }) => <ul className="list-disc pl-5 mb-2">{children}</ul>,
                                                 ol: ({ children }) => <ol className="list-decimal pl-5 mb-2">{children}</ol>,
                                                 li: ({ children }) => <li className="mb-1">{children}</li>,
-                                                strong: ({ children }) => <strong className={`font-semibold ${msg.role === 'user' ? 'text-white' : 'text-brand-800'}`}>{children}</strong>,
+                                                strong: ({ children }) => <strong className={`font-semibold ${msg.role === 'user' ? 'text-brand-900' : 'text-brand-800'}`}>{children}</strong>,
                                                 h3: ({ children }) => <h3 className="font-semibold text-title mt-3 mb-1">{children}</h3>,
                                             }}
                                         >

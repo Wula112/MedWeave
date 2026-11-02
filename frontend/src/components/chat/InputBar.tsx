@@ -143,7 +143,7 @@ const InputBar: React.FC<InputBarProps> = ({
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && !isSending && onSend()}
                     placeholder={isElderMode ? "打字提问" : "描述症状、问医保、查报告…"}
-                    className={`w-full rounded-full bg-ink-50 pl-5 pr-14 text-ink-900 placeholder:text-ink-400 ring-1 ring-inset ring-ink-200 focus:outline-none focus:bg-white focus:ring-2 focus:ring-brand-500 transition duration-base ${isElderMode ? 'h-14 text-title' : 'h-12 text-callout'}`}
+                    className={`w-full rounded-full bg-ink-50 pl-5 pr-14 text-ink-900 placeholder:text-ink-500 ring-1 ring-inset ring-ink-200 focus:outline-none focus:bg-white focus:ring-2 focus:ring-brand-500 transition duration-base ${isElderMode ? 'h-14 text-title' : 'h-12 text-callout'}`}
                 />
                 <button
                     onClick={onSend}

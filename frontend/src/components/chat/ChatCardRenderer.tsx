@@ -55,7 +55,7 @@ const InsuranceBalanceCard: FC<{ data: Record<string, unknown> }> = ({ data }) =
         <section className="relative overflow-hidden rounded-card bg-gradient-to-br from-brand-700 to-brand-900 p-5 text-white shadow-raised font-cn animate-rise motion-reduce:animate-none">
             <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10" />
             <div className="pointer-events-none absolute -right-4 top-16 h-24 w-24 rounded-full bg-white/5" />
-            <div className={`relative flex items-center gap-1.5 text-brand-100 ${t.caption}`}>
+            <div className={`relative flex items-center gap-1.5 text-brand-50 ${t.caption}`}>
                 <ShieldCheck size={14} /> 国家医保电子凭证
                 {updatedAt && <span className="ml-auto tabular-nums">更新于 {updatedAt}</span>}
             </div>
@@ -65,7 +65,7 @@ const InsuranceBalanceCard: FC<{ data: Record<string, unknown> }> = ({ data }) =
 
             <div className="relative mt-4 flex items-end justify-between gap-3">
                 <div className="min-w-0">
-                    <div className={`flex items-center gap-2 text-brand-100 ${t.caption}`}>
+                    <div className={`flex items-center gap-2 text-brand-50 ${t.caption}`}>
                         个人账户余额（元）
                         <button
                             onClick={() => setShowBalance(v => !v)}
@@ -91,7 +91,7 @@ const InsuranceBalanceCard: FC<{ data: Record<string, unknown> }> = ({ data }) =
                     ['上月入账', yuan(lastDeposit, 2)],
                 ].map(([label, value]) => (
                     <div key={label} className="min-w-0 rounded-control bg-white/10 px-3 py-2">
-                        <div className={`text-brand-100 ${t.caption}`}>{label}</div>
+                        <div className={`text-brand-50 ${t.caption}`}>{label}</div>
                         <div className={`font-semibold tabular-nums truncate ${t.body}`}>{value}</div>
                     </div>
                 ))}
