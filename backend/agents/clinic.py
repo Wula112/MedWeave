@@ -45,8 +45,8 @@ containing ONLY the messages produced during this turn (see ``_replace``).
 resets only the already-exported message buffer for an unfinished interview.
 Reply routing can pause and hand off without consuming a question; returning
 to clinic reloads those facts and the pending question. Real completion resets
-private state after preserving Q&A in the parent. All models keep reading the
-complete shared history; there is no separate interview ID or message scope.
+private state after preserving Q&A in the parent. Models read the shared history,
+which may contain a summary; there is no separate interview ID or message scope.
 """
 from __future__ import annotations
 
@@ -60,12 +60,13 @@ from langchain_core.runnables import RunnableConfig
 # postponed annotations LangGraph matches the annotation *string* and only
 # injects the config for "RunnableConfig" / "Optional[RunnableConfig]".
 from langgraph.graph import END, START, StateGraph
-from agents.factory import get_agent_context, create_specialist_agent, invoke_model
+from agents.factory import create_specialist_agent, invoke_model, invoke_specialist_agent
 from langgraph.types import Command, Overwrite, interrupt
 from pydantic import BaseModel, Field, model_validator
 
 from agents.handoff import (
-    MAX_HANDOFFS_PER_TURN, get_handoff_tools, handoff_command, handoff_prompt_section, split_handoff,
+    MAX_HANDOFFS_PER_TURN, compacted_handoff_history, get_handoff_tools, handoff_command,
+    handoff_prompt_section, split_handoff,
 )
 from agents.llm import get_chat_llm
 from agents.router import is_exit_request
@@ -262,11 +263,12 @@ class ClinicState(TypedDict, total=False):
     ``messages`` is deliberately a last-write-wins channel: on entry it holds
     the conversation history handed down by the master graph, and terminal
     nodes overwrite it with ONLY the messages produced during this turn. The
-    parent's ``operator.add`` reducer then appends exactly those, which keeps
-    the ``{"messages": new_messages}`` contract the rest of the app expects.
+    parent's reducer appends those messages; ``history_replacement`` separately
+    carries any compressed history back to the master graph.
     """
 
     messages: Annotated[Sequence[BaseMessage], _replace]
+    history_replacement: Sequence[BaseMessage] | None
     user_info: dict
     # Mirrored from MainAgentState so handoffs can respect the per-turn
     # handoff budget before escaping to the parent graph.
@@ -480,6 +482,7 @@ def enter_interview(state: ClinicState) -> dict:
     update = {} if continuing else _cleared_interview()
     update.update({
         "turn_messages": Overwrite([]),
+        "history_replacement": None,
         "interview_status": "collecting",
         "reply_pending": continuing,
         "reply_action": "",
@@ -642,9 +645,11 @@ def cancel_interview(state: ClinicState) -> dict:
 
 def handoff_reply(state: ClinicState) -> Command:
     messages = state.get("messages", []) if state.get("reply_action") == "cancel" else state.get("turn_messages", [])
+    replacement = state.get("history_replacement")
     command = handoff_command(
         state, state["reply_target"], parent=True,
-        messages=messages,
+        messages=replacement if replacement is not None else messages,
+        replace_history=replacement is not None,
     )
     if command is not None:
         return command
@@ -890,12 +895,17 @@ async def conclude(state: ClinicState, config: Optional[RunnableConfig] = None) 
     )
 
     transcript = _transcript(state)
-    sub_result = await agent.ainvoke({"messages": transcript}, context=get_agent_context())
-    produced = list(sub_result["messages"][len(transcript):])
+    result = await invoke_specialist_agent(agent, transcript)
+    produced = result.new_messages
 
     target, kept = split_handoff(produced)
     if target is not None and state.get("handoff_count", 0) < MAX_HANDOFFS_PER_TURN:
-        return {"reply_action": "handoff", "reply_target": target, "turn_messages": kept}
+        replacement = (
+            compacted_handoff_history(transcript, result.compacted_messages, produced, kept)
+            if result.compacted_messages is not None else None
+        )
+        return {"reply_action": "handoff", "reply_target": target, "turn_messages": kept,
+                "history_replacement": replacement}
 
     triage_text = next(
         (
@@ -910,6 +920,7 @@ async def conclude(state: ClinicState, config: Optional[RunnableConfig] = None) 
         "reply_action": "",
         "turn_messages": produced,
         "messages": [*state.get("turn_messages", []), *produced],
+        "history_replacement": result.compacted_messages,
     }
     if triage_text:
         recommendation = await _summarize_recommendation(triage_text, state, voice=voice)

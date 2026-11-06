@@ -11,8 +11,11 @@ class MainAgentState(TypedDict):
     Global state shared between the Router and all Specialized Agents.
     This is the 'single source of truth' for the current conversation turn.
     """
-    # Accumulated conversation history (append-only via operator.add)
+    # Normally append-only; a successful compaction can replace the history.
     messages: Annotated[Sequence[BaseMessage], operator.add]
+
+    # A completed clinic subgraph hands its compacted history to the parent.
+    history_replacement: Sequence[BaseMessage] | None
 
     # User profile info injected by the API layer (name, age, medical history, etc.)
     user_info: dict

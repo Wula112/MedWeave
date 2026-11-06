@@ -32,11 +32,12 @@ All data in the screenshots is synthetic.
 
 - **Multi-agent orchestration:** a global router dispatches requests to advisor, clinic, insurance, report, and pharmacy agents while preserving the active specialist context. Specialists can hand a turn to each other with LangGraph `Command` (swarm-style handoff), so a symptom described in insurance mode is answered by the clinic agent in the same turn.
 - **Stateful sessions and a real clinic state machine:** the graph is compiled with a checkpointer (memory or SQLite) keyed by `thread_id`. The clinic agent is a compiled subgraph with a code-level emergency gate that runs before any model call and again on every follow-up answer, one structured call that extracts symptoms and drafts the next question, `interrupt()`-based follow-up questions, and a structured triage card. See [`docs/langgraph-runtime.md`](docs/langgraph-runtime.md).
-- **Pause and resume consultations:** switch specialists during a follow-up, then return to the clinic within the same conversation. Completed consultations clear active interview state while retaining the full shared history.
+- **Pause and resume consultations:** switch specialists during a follow-up, then return to the clinic within the same conversation. Completed consultations clear active interview state while preserving conversation context.
 - **Multimodal health workflows:** report, medicine-box, and trace-code images are sent directly to a configured vision-capable model; no separate OCR service is required.
 - **Privacy-aware image handling:** report previews are blurred by default, press-and-hold reveal is temporary, and common identity fields are redacted from model output on a best-effort basis.
 - **Streaming, server-driven UI:** FastAPI emits text, node status, tool status, and structured card events over SSE; React renders cards in the conversation context.
 - **Hybrid RAG:** BM25 and dense retrieval are combined with reciprocal rank fusion. Embedding and vector-store backends are configurable.
+- **Context compression:** summary budgets adapt to model capacity and prompt overhead. See [context management](backend/docs/context-management.md).
 - **Pluggable Agent Skills:** domain tools are discovered from `backend/skills/<skill_name>/` without a central registration list.
 - **Open observability and evals:** OpenInference spans are exported through OpenTelemetry to Jaeger or another OTLP backend. Anonymous regression cases support strict local scoring and optional DeepEval.
 - **Design system and elder mode:** semantic colour, type, radius and shadow tokens with shared result-card components ([`frontend/docs/design-system.md`](frontend/docs/design-system.md)); elder mode moves every text role one size up.

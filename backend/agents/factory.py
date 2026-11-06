@@ -1,7 +1,10 @@
 """Compose native LangChain agents with one consistent middleware chain."""
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ProviderStrategy
@@ -13,6 +16,7 @@ from pydantic import BaseModel
 
 from agents.middlewares import build_middlewares
 from agents.middlewares.execution_context import get_agent_context
+from agents.middlewares.summarization import is_summary
 from agents.tool_policy import tool_identity
 from runtime.config import get_settings
 from runtime.context import RunContext, current_run
@@ -25,8 +29,33 @@ def create_specialist_agent(
     policy = context.settings if context else get_settings()
     return create_agent(
         model=model, tools=tools, system_prompt=system_prompt,
-        middleware=build_middlewares(tool_identity=tool_identity), context_schema=RunContext,
+        middleware=build_middlewares(
+            tool_identity=tool_identity, model=model, system_prompt=system_prompt, tools=tools,
+        ), context_schema=RunContext,
     ).with_config({"recursion_limit": policy.agent_recursion_limit})
+
+
+@dataclass
+class SpecialistResult:
+    new_messages: list[BaseMessage]
+    compacted_messages: list[BaseMessage] | None
+
+
+async def invoke_specialist_agent(agent: CompiledStateGraph, messages: Sequence[BaseMessage]) -> SpecialistResult:
+    """Separate this turn's events from history even when compaction changes its length."""
+    for message in messages:
+        if message.id is None:
+            message.id = str(uuid4())
+    input_ids = {message.id for message in messages}
+    result = await agent.ainvoke({"messages": list(messages)}, context=get_agent_context())
+    remaining = list(result["messages"])
+    archived = result.get("summary_archived_messages", [])
+    new_messages = [
+        message for message in [*archived, *remaining]
+        if message.id not in input_ids and not is_summary(message)
+    ]
+    compacted = any(is_summary(message) and message.id not in input_ids for message in remaining)
+    return SpecialistResult(new_messages, remaining if compacted else None)
 
 
 async def invoke_model(

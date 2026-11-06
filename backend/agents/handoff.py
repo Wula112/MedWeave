@@ -26,9 +26,9 @@ from __future__ import annotations
 import json
 from typing import Sequence
 
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
-from langgraph.types import Command
+from langgraph.types import Command, Overwrite
 
 # Agent id (the value kept in ``MainAgentState['active_agent']``) → graph node.
 AGENT_TO_NODE: dict[str, str] = {
@@ -184,6 +184,7 @@ def handoff_command(
     *,
     messages: Sequence[BaseMessage],
     parent: bool = False,
+    replace_history: bool = False,
 ) -> Command | None:
     """Build the same bounded handoff for tool-based and structured routing."""
     if target not in AGENT_TO_NODE:
@@ -197,12 +198,28 @@ def handoff_command(
         graph=Command.PARENT if parent else None,
         goto=AGENT_TO_NODE[target],
         update={
-            "messages": list(messages),
+            "messages": Overwrite(list(messages)) if replace_history else list(messages),
             "active_agent": target,
             "next_agent": target,
             "handoff_count": honoured + 1,
         },
     )
+
+
+def compacted_handoff_history(
+    original: Sequence[BaseMessage], compacted: Sequence[BaseMessage],
+    new_messages: Sequence[BaseMessage], kept: Sequence[BaseMessage],
+) -> list[BaseMessage]:
+    """Remove the transfer and keep the user's request available to the next agent."""
+    discarded = new_messages[len(kept):]
+    discarded_ids = {message.id for message in discarded if message.id is not None}
+    discarded_objects = {id(message) for message in discarded}
+    history = [m for m in compacted if m.id not in discarded_ids and id(m) not in discarded_objects]
+    latest_user = next((m for m in reversed(original) if isinstance(m, HumanMessage)
+                        and m.additional_kwargs.get("lc_source") != "summarization"), None)
+    if latest_user is not None and not any(m.id == latest_user.id for m in history):
+        history.append(latest_user)
+    return history
 
 
 def apply_handoff(
@@ -211,6 +228,7 @@ def apply_handoff(
     *,
     parent: bool = False,
     prefix_messages: Sequence[BaseMessage] | None = None,
+    compacted_messages: Sequence[BaseMessage] | None = None,
 ) -> Command | dict:
     """
     Turn a sub-agent's output into either a plain state update or a ``Command``.
@@ -224,11 +242,20 @@ def apply_handoff(
     target, kept = split_handoff(new_messages)
 
     if target is None:
-        return {"messages": [*prefix, *new_messages]}
+        return {"messages": Overwrite(list(compacted_messages)) if compacted_messages is not None
+                else [*prefix, *new_messages]}
 
-    command = handoff_command(state, target, messages=[*prefix, *kept], parent=parent)
+    if compacted_messages is not None:
+        messages = compacted_handoff_history(state.get("messages", []), compacted_messages, new_messages, kept)
+    else:
+        messages = [*prefix, *kept]
+    command = handoff_command(state, target, messages=messages, parent=parent,
+                              replace_history=compacted_messages is not None)
     # Keep complete tool/message pairs if the per-turn handoff budget is spent.
-    return command if command is not None else {"messages": [*prefix, *new_messages]}
+    return command if command is not None else {
+        "messages": Overwrite(list(compacted_messages)) if compacted_messages is not None
+        else [*prefix, *new_messages]
+    }
 
 
 # Every node a handoff-capable agent may jump to, for ``add_node(destinations=)``.

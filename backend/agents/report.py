@@ -11,7 +11,7 @@ Business Flow:
 import json
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
-from agents.factory import get_agent_context, create_specialist_agent
+from agents.factory import create_specialist_agent, invoke_specialist_agent
 from langgraph.types import Command
 from agents.handoff import apply_handoff, get_handoff_tools, handoff_prompt_section
 from agents.state import MainAgentState
@@ -108,8 +108,6 @@ async def report_node(state: MainAgentState) -> Command | dict:
         tools=[load_skill, *skill_tools, *get_handoff_tools(AGENT_ID)],
         system_prompt=SystemMessage(content=system),
     )
-    sub_result = await agent.ainvoke({"messages": state["messages"]}, context=get_agent_context())
-    original_count = len(state["messages"])
-    new_messages = list(sub_result["messages"][original_count:])
-    _emit_report_cards(new_messages)
-    return apply_handoff(state, new_messages)
+    result = await invoke_specialist_agent(agent, state["messages"])
+    _emit_report_cards(result.new_messages)
+    return apply_handoff(state, result.new_messages, compacted_messages=result.compacted_messages)

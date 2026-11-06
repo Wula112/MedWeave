@@ -20,7 +20,7 @@ import json
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 from langchain_core.messages import SystemMessage
-from agents.factory import get_agent_context, create_specialist_agent
+from agents.factory import create_specialist_agent, invoke_specialist_agent
 from langgraph.types import Command
 from agents.handoff import apply_handoff, get_handoff_tools, handoff_prompt_section
 from agents.state import MainAgentState
@@ -299,7 +299,5 @@ async def pharmacy_node(state: MainAgentState) -> Command | dict:
         system_prompt=SystemMessage(content=system_prompt),
     )
 
-    sub_result = await agent.ainvoke({"messages": state["messages"]}, context=get_agent_context())
-    original_count = len(state["messages"])
-    new_messages = sub_result["messages"][original_count:]
-    return apply_handoff(state, new_messages)
+    result = await invoke_specialist_agent(agent, state["messages"])
+    return apply_handoff(state, result.new_messages, compacted_messages=result.compacted_messages)

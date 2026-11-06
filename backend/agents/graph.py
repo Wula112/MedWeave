@@ -4,6 +4,8 @@ Main LangGraph StateGraph assembler.
 Wires together all agent nodes into the master graph:
   START -> router -> (clinic | insurance | report | pharmacy | advisor) -> END
 
+After clinic completes, a small parent node applies any compressed history.
+
 `clinic_node` is not a plain function but a compiled subgraph with its own
 state machine (see agents/clinic.py). The master graph is compiled with a
 checkpointer so conversations can be continued by `thread_id` and so the
@@ -15,6 +17,7 @@ agents/handoff.py). `destinations` is what makes those dynamic edges show up in
 `get_graph().draw_mermaid()`.
 """
 from langgraph.graph import StateGraph, START, END
+from langgraph.types import Overwrite
 from agents.checkpointing import create_checkpointer
 from agents.handoff import handoff_destinations
 from agents.state import MainAgentState
@@ -42,6 +45,14 @@ def _route_to_agent(state: MainAgentState) -> str:
     return _AGENT_MAP.get(agent_id, "advisor_node")
 
 
+def _finish_clinic_history(state: MainAgentState) -> dict:
+    """Apply compaction after the clinic subgraph exports its ordinary turn buffer."""
+    replacement = state.get("history_replacement")
+    if replacement is None:
+        return {}
+    return {"messages": Overwrite(list(replacement)), "history_replacement": None}
+
+
 # --- Build the graph ---
 def build_graph(checkpointer=None):
     """Compile the master graph. Pass `checkpointer` to override the env default."""
@@ -54,6 +65,7 @@ def build_graph(checkpointer=None):
     workflow.add_node(
         "clinic_node", clinic_node, destinations=(*handoff_destinations("clinic_agent"), END)
     )
+    workflow.add_node("finish_clinic_history", _finish_clinic_history)
     workflow.add_node(
         "insurance_node",
         insurance_node,
@@ -87,9 +99,10 @@ def build_graph(checkpointer=None):
         }
     )
 
-    # 4. All specialized agents -> END (a Command(goto=...) handoff overrides
-    #    this static edge for that one run).
-    workflow.add_edge("clinic_node", END)
+    # 4. Specialists finish the turn; clinic first applies any history replacement.
+    #    A Command(goto=...) handoff overrides the static edge for that run.
+    workflow.add_edge("clinic_node", "finish_clinic_history")
+    workflow.add_edge("finish_clinic_history", END)
     workflow.add_edge("insurance_node", END)
     workflow.add_edge("report_node", END)
     workflow.add_edge("advisor_node", END)

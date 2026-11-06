@@ -31,6 +31,7 @@ class ModelSettings:
     model: str
     base_url: str | None
     extra_body: Mapping[str, Any] | None = None
+    context_window: int | None = None
 
 
 @dataclass(frozen=True)
@@ -187,12 +188,23 @@ def resolve_model_settings(
             f"Missing compatible API base URL. Configure one of: {', '.join(base_url_names)}"
         )
 
+    raw_context_window = values.get("LLM_CONTEXT_WINDOW", "").strip() if purpose == "chat" else ""
+    context_window = None
+    if raw_context_window:
+        try:
+            context_window = int(raw_context_window)
+        except ValueError:
+            raise LLMConfigurationError("LLM_CONTEXT_WINDOW must be an integer of at least 1024") from None
+        if context_window < 1024:
+            raise LLMConfigurationError("LLM_CONTEXT_WINDOW must be an integer of at least 1024")
+
     return ModelSettings(
         provider=provider,
         api_key=api_key,
         model=model,
         base_url=base_url,
         extra_body=profile.extra_body,
+        context_window=context_window,
     )
 
 
@@ -230,8 +242,10 @@ def get_chat_llm(
         kwargs["base_url"] = settings.base_url
     if settings.extra_body:
         kwargs["extra_body"] = settings.extra_body
-
     model = ChatOpenAI(**kwargs)
+    if settings.context_window is not None:
+        # Keep the provider's capability flags while overriding its capacity.
+        model.profile = {**(model.profile or {}), "max_input_tokens": settings.context_window}
     if context:
         context.resources.append(lambda: close_chat_llm(model))
     return model

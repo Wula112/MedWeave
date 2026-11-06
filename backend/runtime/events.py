@@ -34,6 +34,8 @@ async def iter_graph_events(graph, graph_input, config, *, node_labels: dict,
         async for event in stream:
             kind, name = event["event"], event.get("name", "")
             if kind == "on_chat_model_stream":
+                if event.get("metadata", {}).get("lc_source") == "summarization":
+                    continue
                 content = event["data"]["chunk"].content
                 if isinstance(content, list):
                     content = "".join(block["text"] for block in content
