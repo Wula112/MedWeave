@@ -307,6 +307,64 @@ class InsuranceToPharmacyHandoffTests(_GraphHandoffCase):
 
 
 class ClinicHandoffTests(_GraphHandoffCase):
+    async def test_handoff_stream_enters_the_new_agent_before_its_question(self):
+        from runtime.events import iter_graph_events
+
+        class InterviewModel(_ClinicChatModel):
+            async def structured_reply(self, schema_name, messages):
+                if schema_name == "InterviewStep":
+                    return clinic.InterviewStep(
+                        facts=clinic.SymptomFacts(chief_complaint="胃胀"),
+                        next_question="胃胀让你不舒服多久了？",
+                    )
+                return await super().structured_reply(schema_name, messages)
+
+        insurance = scripted(
+            AIMessage(content="这属于症状咨询。", tool_calls=[
+                {"name": "transfer_to_clinic", "args": {}, "id": "c1"},
+            ]),
+            AIMessage(content="已为你转接预问诊助手。"),
+            AIMessage(content="这是医保回答。"),
+        )
+        clinic_model = InterviewModel(
+            script=[], invocations=[],
+            reply_decision=clinic.ClinicReplyDecision(action="handoff", target_agent="insurance_agent"),
+        )
+        graph = build_graph(checkpointer=MemorySaver())
+        config = {"configurable": {"thread_id": "stream-handoff"}}
+        state = {
+            "messages": [HumanMessage(content="我胃胀")], "user_info": {},
+            "active_agent": "insurance_agent", "next_agent": "", "handoff_count": 0, "channel": "text",
+        }
+
+        async def collect(value):
+            return [event async for event in iter_graph_events(
+                graph, value, config,
+                node_labels={"insurance_node": "医保", "clinic_node": "问诊"},
+                tool_labels={}, custom_types={"text", "card"},
+            )]
+
+        with patch("agents.insurance.get_chat_llm", return_value=insurance), patch(
+            "agents.clinic.get_chat_llm", return_value=clinic_model
+        ):
+            events = await collect(state)
+            resumed = await collect(Command(resume="医保怎么报销？"))
+
+        transition = next(i for i, event in enumerate(events)
+                          if event.get("content") == "已为你转接预问诊助手。")
+        clinic_start = next(i for i, event in enumerate(events)
+                            if event["type"] == "node_start" and event.get("node") == "clinic_node")
+        question = next(i for i, event in enumerate(events)
+                        if event["type"] == "text" and event.get("content") == "胃胀让你不舒服多久了？")
+        self.assertLess(transition, clinic_start)
+        self.assertLess(clinic_start, question)
+        self.assertTrue(any(event["type"] == "interrupt" for event in events))
+        insurance_start = next(i for i, event in enumerate(resumed)
+                               if event["type"] == "node_start" and event.get("node") == "insurance_node")
+        answer = next(i for i, event in enumerate(resumed)
+                      if event["type"] == "text" and event.get("content") == "这是医保回答。")
+        self.assertLess(insurance_start, answer)
+
     async def test_a_handoff_into_the_clinic_subgraph_runs_the_interview(self):
         insurance = scripted(
             tool_call("transfer_to_clinic", {"reason": "用户在描述症状"}, "c1"),

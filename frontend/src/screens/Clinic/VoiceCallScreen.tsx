@@ -225,7 +225,10 @@ const VoiceCallScreen = () => {
             },
             onStep: (step) => setThinkingLabel(step.content),
             onStepFinish: () => undefined,
-            onModeChange: (mode) => { modeRef.current = mode; },
+            onModeChange: (mode) => {
+                if (modeRef.current !== mode) setCaptions(closeAssistant);
+                modeRef.current = mode;
+            },
             onCard: (card) => {
                 setCaptions(prev => withOpenAssistant(prev, caption => ({ ...caption, cards: [...(caption.cards ?? []), card] })));
                 markUnseen();

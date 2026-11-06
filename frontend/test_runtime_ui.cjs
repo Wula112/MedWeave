@@ -25,6 +25,7 @@ const { chromium } = require('playwright');
         const gate = new Promise(resolve => { release = resolve; });
         const entered = new Promise(resolve => { requestSeen = resolve; });
         const requests = [];
+        const sse = events => events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('');
         await page.route('http://localhost:8000/api/chat', async route => {
             if (route.request().method() === 'OPTIONS') {
                 await route.fulfill({ status: 204, headers: {
@@ -36,18 +37,41 @@ const { chromium } = require('playwright');
             requests.push(route.request().postDataJSON());
             requestSeen();
             if (requests.length === 1) await gate;
-            const terminal = requests.length === 1
-                ? { type: 'error', code: 'model_timeout', content: '模型响应超时，请稍后重试。' }
-                : { type: 'finish', status: 'success' };
-            const text = requests.length === 1 ? '部分内容' : requests.length === 2 ? '已恢复' : '继续刚才的问诊';
-            const modeEvent = requests.length === 2
-                ? { type: 'node_start', node: 'advisor_node' }
-                : requests.length === 3 ? { type: 'node_start', node: 'clinic_node' } : null;
+            const node = (name, content) => ({ type: 'node_start', node: name, content });
+            const text = content => ({ type: 'text', content });
+            const finish = { type: 'finish', status: 'success' };
+            const cases = [
+                [text('部分内容'), { type: 'error', code: 'model_timeout', content: '模型响应超时，请稍后重试。' }],
+                [node('advisor_node'), text('已恢复'), finish],
+                [node('clinic_node'), text('继续刚才的问诊'), finish],
+                [node('insurance_node', '进入医保咨询模块'), text('这属于身体不适的症状咨询，'),
+                    { type: 'tool_start', tool: 'transfer_to_clinic', content: '正在转接预问诊助手…' },
+                    { type: 'tool_end', tool: 'transfer_to_clinic' }, text('已为你转接预问诊助手，请稍候。'),
+                    { type: 'node_end', node: 'insurance_node' }, node('clinic_node', '进入预问诊模块'),
+                    { type: 'card', payload: { type: 'clinic_recommendation', data: {
+                        departments: ['消化内科'], urgency: 'routine', summary: '建议就诊咨询',
+                    } } }, text('胃胀让你不舒服多久了？'),
+                    { type: 'interrupt', content: '胃胀让你不舒服多久了？' }, finish],
+                [node('clinic_node'), text('追问的前半句，'), node('ask_followup'), text('后半句。'), finish],
+                [node('insurance_node', '无过渡语的医保节点'), { type: 'node_end', node: 'insurance_node' },
+                    node('clinic_node', '无过渡语的问诊节点'), text('请说说症状。'), finish],
+                [node('insurance_node'), text('这就帮您转接。'), node('clinic_node'),
+                    { type: 'error', code: 'model_timeout', content: '接手的助手暂时不可用。' }],
+            ];
             await route.fulfill({ status: 200, headers: { 'Access-Control-Allow-Origin': '*' },
-                contentType: 'text/event-stream', body:
-                    (modeEvent ? `data: ${JSON.stringify(modeEvent)}\n\n` : '') +
-                    `data: ${JSON.stringify({ type: 'text', content: text })}\n\n` +
-                    `data: ${JSON.stringify(terminal)}\n\n` });
+                contentType: 'text/event-stream', body: sse(cases[requests.length - 1]) });
+        });
+        let visionRequested = false;
+        await page.route('http://localhost:8000/api/vision-chat', async route => {
+            visionRequested = true;
+            await route.fulfill({ status: 200, headers: { 'Access-Control-Allow-Origin': '*' },
+                contentType: 'text/event-stream', body: sse([
+                    { type: 'node_start', node: 'report_node' },
+                    { type: 'text', content: '这张图片涉及用药，我帮您转接。' },
+                    { type: 'node_start', node: 'pharmacy_node' },
+                    { type: 'text', content: '请告诉我药品名称。' },
+                    { type: 'finish', status: 'success' },
+                ]) });
         });
         await page.goto('http://health.test/');
         const input = page.getByPlaceholder('描述症状、问医保、查报告…');
@@ -79,6 +103,82 @@ const { chromium } = require('playwright');
         assert.equal(requests[2].thread_id, requests[0].thread_id);
         assert.notEqual(requests[2].request_id, requests[1].request_id);
         assert.equal(requests[2].messages.length, 1);
+
+        const messageContaining = value => page.getByText(value, { exact: true }).locator('xpath=../../..');
+        await page.getByRole('button', { name: '查医保', exact: true }).click();
+        await input.fill('我胃胀');
+        await send.click();
+        const transition = '这属于身体不适的症状咨询，已为你转接预问诊助手，请稍候。';
+        await page.getByText('胃胀让你不舒服多久了？', { exact: true }).waitFor();
+        const beforeHandoff = messageContaining(transition);
+        const afterHandoff = messageContaining('胃胀让你不舒服多久了？');
+        assert.equal(await beforeHandoff.getByText('胃胀让你不舒服多久了？', { exact: true }).count(), 0);
+        assert.equal(await beforeHandoff.getByText('进入医保咨询模块', { exact: true }).count(), 1);
+        assert.equal(await beforeHandoff.getByText('进入预问诊模块', { exact: true }).count(), 0);
+        assert.equal(await afterHandoff.getByText('进入预问诊模块', { exact: true }).count(), 1);
+        assert.equal(await afterHandoff.locator('[data-card="clinic_recommendation"]').count(), 1);
+        assert.equal(await afterHandoff.getByText('您好！我是您的专属线上医生助手。请告诉我您主要哪里不舒服？大概持续多久了？', { exact: true }).count(), 1);
+        assert.equal(await page.getByLabel('正在输入').count(), 0);
+        await page.getByText('胃胀让你不舒服多久了？', { exact: true }).scrollIntoViewIfNeeded();
+        const handoffShot = path.resolve(__dirname, '../backend/.runtime/mobile-handoff.png');
+        fs.mkdirSync(path.dirname(handoffShot), { recursive: true });
+        await page.screenshot({ path: handoffShot, animations: 'disabled' });
+
+        await input.fill('三天了');
+        await send.click();
+        await page.getByText('追问的前半句，后半句。', { exact: true }).waitFor();
+        assert.equal(requests[4].messages.length, 1);
+        assert.equal(requests[4].thread_id, requests[0].thread_id);
+
+        await page.getByRole('button', { name: '查医保', exact: true }).click();
+        const completedBefore = await page.getByText('已完成', { exact: true }).count();
+        await input.fill('另一种转接');
+        await send.click();
+        await page.getByText('请说说症状。', { exact: true }).waitFor();
+        const withoutTransition = messageContaining('请说说症状。');
+        assert.equal(await withoutTransition.getByText('无过渡语的医保节点', { exact: true }).count(), 1);
+        assert.equal(await withoutTransition.getByText('无过渡语的问诊节点', { exact: true }).count(), 1);
+        assert.equal(await page.getByText('已完成', { exact: true }).count(), completedBefore + 1);
+
+        await page.getByRole('button', { name: '查医保', exact: true }).click();
+        await input.fill('转接后失败');
+        await send.click();
+        await page.getByText('[接手的助手暂时不可用。]', { exact: true }).waitFor();
+        assert.equal(await messageContaining('这就帮您转接。').getByText('[接手的助手暂时不可用。]', { exact: true }).count(), 0);
+        assert.equal(await page.getByLabel('正在输入').count(), 0);
+
+        await page.locator('input[type="file"]').setInputFiles({ name: 'report.png', mimeType: 'image/png', buffer: Buffer.from('test') });
+        await page.getByText('请告诉我药品名称。', { exact: true }).waitFor();
+        assert.equal(visionRequested, true);
+        assert.equal(await messageContaining('这张图片涉及用药，我帮您转接。').getByText('请告诉我药品名称。', { exact: true }).count(), 0);
+
+        // Deliver the handoff in separate network chunks to check the in-flight UI too.
+        await page.evaluate(() => {
+            let controller;
+            window.fetch = async () => new Response(new ReadableStream({ start(stream) { controller = stream; } }),
+                { headers: { 'Content-Type': 'text/event-stream' } });
+            window.sendTestEvents = events => controller.enqueue(new TextEncoder().encode(
+                events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('')));
+        });
+        await input.fill('流式转接');
+        await send.click();
+        await page.evaluate(() => window.sendTestEvents([
+            { type: 'node_start', node: 'pharmacy_node' },
+            { type: 'text', content: '先转给问诊助手。' },
+        ]));
+        await page.getByText('先转给问诊助手。', { exact: true }).waitFor();
+        await page.evaluate(() => window.sendTestEvents([{ type: 'node_start', node: 'clinic_node' }]));
+        await page.getByLabel('正在输入').waitFor();
+        assert.equal(await messageContaining('先转给问诊助手。').getByLabel('正在输入').count(), 0);
+        await input.fill('下一条消息');
+        assert.equal(await send.isDisabled(), true);
+        await page.evaluate(() => window.sendTestEvents([
+            { type: 'text', content: '具体哪里不舒服？' }, { type: 'finish', status: 'success' },
+        ]));
+        await page.getByText('具体哪里不舒服？', { exact: true }).waitFor();
+        assert.equal(await messageContaining('先转给问诊助手。').getByText('具体哪里不舒服？', { exact: true }).count(), 0);
+        assert.equal(await page.getByLabel('正在输入').count(), 0);
+        assert.equal(await send.isEnabled(), true);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         assert.deepEqual(failures, []);
         const shot = path.resolve(__dirname, '../backend/.runtime/mobile-runtime.png');

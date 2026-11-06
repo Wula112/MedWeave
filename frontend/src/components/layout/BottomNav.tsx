@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useEffectEvent } from 'react';
 import { useGlobalStore } from '../../store/GlobalContext';
 import { MODULES } from '../../data/mockData';
 import type { ChatMessage, ChatMode } from '../../types';
-import { streamChat, streamVisionChat, type VisionScanType } from '../../services/chatService';
+import { streamChat, streamVisionChat, type ChatServiceOptions, type VisionScanType } from '../../services/chatService';
 import InputBar from '../chat/InputBar';
 
 const getVisionUserText = (scanType: VisionScanType) => {
@@ -29,6 +29,60 @@ const BottomNav = () => {
         window.addEventListener('chat:send', handleCustomMessage);
         return () => window.removeEventListener('chat:send', handleCustomMessage);
     }, []);
+
+    const createStreamHandlers = (firstMessageId: string, initialMode: ChatMode): ChatServiceOptions => {
+        let currentMessageId = firstMessageId;
+        let currentMode = initialMode;
+        let segment = 0;
+
+        const updateAssistant = (updater: (msg: ChatMessage) => ChatMessage) => {
+            // State updates may be applied after another stream event changes the active ID.
+            const messageId = currentMessageId;
+            setMessages(prev => prev.map(m => m.id === messageId ? updater(m) : m));
+        };
+
+        return {
+            onChunk: (chunk) => updateAssistant(m => ({ ...m, text: m.text + chunk })),
+            onStep: (step) => updateAssistant(m => ({ ...m, steps: [...(m.steps ?? []), step] })),
+            onStepFinish: (nodeOrTool) => updateAssistant(m => ({
+                ...m,
+                steps: (m.steps ?? []).map(s =>
+                    (s.node === nodeOrTool || s.tool === nodeOrTool) && !s.isFinished
+                        ? { ...s, isFinished: true }
+                        : s
+                ),
+            })),
+            onModeChange: (mode) => {
+                if (mode !== currentMode) {
+                    const previousId = currentMessageId;
+                    const nextId = `${firstMessageId}-agent-${++segment}`;
+                    const timestamp = Date.now();
+                    currentMessageId = nextId;
+                    setMessages(prev => prev.flatMap(m => {
+                        if (m.id !== previousId) return [m];
+                        // Keep the initial progress in place when no visible content preceded the switch.
+                        if (!m.text.trim() && !m.cards?.length) return [{ ...m, id: nextId }];
+                        return [
+                            { ...m, isGenerating: false, steps: m.steps?.map(s => ({ ...s, isFinished: true })) },
+                            { id: nextId, role: 'assistant', text: '', timestamp, steps: [], isGenerating: true },
+                        ];
+                    }));
+                    currentMode = mode;
+                }
+                enterChatMode(mode);
+            },
+            onCard: (card) => updateAssistant(m => ({ ...m, cards: [...(m.cards ?? []), card] })),
+            onSession: setThreadId,
+            onDone: () => updateAssistant(m => ({
+                ...m, isGenerating: false, steps: m.steps?.map(s => ({ ...s, isFinished: true })),
+            })),
+            onError: (err) => {
+                console.error('Chat error:', err);
+                updateAssistant(m => ({ ...m, text: m.text + `\n[${err.message}]`, isGenerating: false,
+                    steps: m.steps?.map(s => ({ ...s, isFinished: true })) }));
+            },
+        };
+    };
 
     const handleSend = async (text = inputValue) => {
         const content = text.trim();
@@ -58,50 +112,10 @@ const BottomNav = () => {
         const updatedMessages = [...messages, userMsg];
         setMessages([...updatedMessages, assistantMsg]);
 
-        const updateAssistant = (updater: (msg: ChatMessage) => ChatMessage) => {
-            setMessages(prev =>
-                prev.map(m => m.id === assistantMsgId ? updater({ ...m }) : m)
-            );
-        };
-
         try {
             await streamChat(
                 updatedMessages,
-                {
-                    onChunk: (chunk) => {
-                        updateAssistant(m => ({ ...m, text: m.text + chunk }));
-                    },
-                    onStep: (step) => {
-                        updateAssistant(m => ({
-                            ...m,
-                            steps: [...(m.steps ?? []), step],
-                        }));
-                    },
-                    onStepFinish: (nodeOrTool: string) => {
-                        updateAssistant(m => ({
-                            ...m,
-                            steps: (m.steps ?? []).map(s =>
-                                (s.node === nodeOrTool || s.tool === nodeOrTool) && !s.isFinished
-                                    ? { ...s, isFinished: true }
-                                    : s
-                            ),
-                        }));
-                    },
-                    onModeChange: (mode: ChatMode) => enterChatMode(mode),
-                    onCard: (card) => {
-                        updateAssistant(m => ({
-                            ...m,
-                            cards: [...(m.cards ?? []), card],
-                        }));
-                    },
-                    onSession: setThreadId,
-                    onDone: () => updateAssistant(m => ({ ...m, isGenerating: false, steps: m.steps?.map(s => ({ ...s, isFinished: true })) })),
-                    onError: (err) => {
-                        console.error("Chat error:", err);
-                        updateAssistant(m => ({ ...m, text: m.text + `\n[${err.message}]`, isGenerating: false,
-                            steps: m.steps?.map(s => ({ ...s, isFinished: true })) }));
-                    }
-                },
+                createStreamHandlers(assistantMsgId, chatMode),
                 { elder_mode: isElderMode },
                 chatMode,
                 threadId
@@ -148,56 +162,12 @@ const BottomNav = () => {
         const updatedMessages = [...messages, userMsg];
         setMessages([...updatedMessages, assistantMsg]);
 
-        const updateAssistant = (updater: (msg: ChatMessage) => ChatMessage) => {
-            setMessages(prev =>
-                prev.map(m => m.id === assistantMsgId ? updater({ ...m }) : m)
-            );
-        };
-
         try {
             await streamVisionChat(
                 file,
                 scanType,
                 updatedMessages,
-                {
-                    onChunk: (chunk) => {
-                        updateAssistant(m => ({ ...m, text: m.text + chunk }));
-                    },
-                    onStep: (step) => {
-                        updateAssistant(m => ({
-                            ...m,
-                            steps: [...(m.steps ?? []), step],
-                        }));
-                    },
-                    onStepFinish: (nodeOrTool: string) => {
-                        updateAssistant(m => ({
-                            ...m,
-                            steps: (m.steps ?? []).map(s =>
-                                (s.node === nodeOrTool || s.tool === nodeOrTool) && !s.isFinished
-                                    ? { ...s, isFinished: true }
-                                    : s
-                            ),
-                        }));
-                    },
-                    onModeChange: (mode: ChatMode) => enterChatMode(mode),
-                    onCard: (card) => {
-                        updateAssistant(m => ({
-                            ...m,
-                            cards: [...(m.cards ?? []), card],
-                        }));
-                    },
-                    onSession: setThreadId,
-                    onDone: () => {
-                        setIsVisionUploading(false);
-                        updateAssistant(m => ({ ...m, isGenerating: false, steps: m.steps?.map(s => ({ ...s, isFinished: true })) }));
-                    },
-                    onError: (err) => {
-                        console.error("Vision chat error:", err);
-                        setIsVisionUploading(false);
-                        updateAssistant(m => ({ ...m, text: m.text + `\n[${err.message}]`, isGenerating: false,
-                            steps: m.steps?.map(s => ({ ...s, isFinished: true })) }));
-                    }
-                },
+                createStreamHandlers(assistantMsgId, chatMode),
                 { elder_mode: isElderMode },
                 threadId,
             );

@@ -42,6 +42,10 @@ export const dispatchStreamEvent = (data: StreamEvent, options: StreamEventHandl
             return true;
 
         case 'node_start': {
+            // Switch messages before recording the new specialist's first step.
+            if (data.node && NODE_TO_CHAT_MODE[data.node]) {
+                options.onModeChange?.(NODE_TO_CHAT_MODE[data.node]);
+            }
             const step: AgentStep = {
                 id: genStepId(),
                 type: 'node_start',
@@ -50,12 +54,6 @@ export const dispatchStreamEvent = (data: StreamEvent, options: StreamEventHandl
                 isFinished: false,
             };
             options.onStep(step);
-            // Automatically switch chatMode based on which agent node started
-            console.log('[chatService] node_start:', data.node, '→ mode:', (data.node && NODE_TO_CHAT_MODE[data.node]) ?? '(no mapping)');
-            if (data.node && NODE_TO_CHAT_MODE[data.node] && options.onModeChange) {
-                console.log('[chatService] calling onModeChange:', NODE_TO_CHAT_MODE[data.node]);
-                options.onModeChange(NODE_TO_CHAT_MODE[data.node]);
-            }
             return true;
         }
 
